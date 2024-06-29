@@ -28,6 +28,7 @@ local default_options = {
     alternate_file = '#',
     directory = '',
   },
+  filter_by_tabpage = false
 }
 
 -- This function is duplicated in tabs
@@ -55,7 +56,7 @@ function M:init(options)
       and function()
         return get_hl('lualine_' .. options.self.section, true)
       end
-    or get_hl('lualine_' .. options.self.section, true)
+      or get_hl('lualine_' .. options.self.section, true)
   default_options.buffers_color = {
     active = default_active,
     inactive = get_hl('lualine_' .. options.self.section, false),
@@ -83,19 +84,45 @@ end
 function M:buffers()
   local buffers = {}
   M.bufpos2nr = {}
+  local tabpage = vim.api.nvim_get_current_tabpage()
   for b = 1, vim.fn.bufnr('$') do
     if vim.fn.buflisted(b) ~= 0 and vim.api.nvim_buf_get_option(b, 'buftype') ~= 'quickfix' then
-      buffers[#buffers + 1] = self:new_buffer(b, #buffers + 1)
-      M.bufpos2nr[#buffers] = b
+      local filter_by_tabpage = self.options.filter_by_tabpage
+      if (filter_by_tabpage == nil or filter_by_tabpage == false) or
+          (filter_by_tabpage == true and M:is_buf_in_tabpage(tabpage, b)) or
+          (type(filter_by_tabpage) == 'function' and filter_by_tabpage(tabpage, b)) then
+        buffers[#buffers + 1] = self:new_buffer(b, #buffers + 1)
+        M.bufpos2nr[#buffers] = b
+      end
     end
   end
-
   return buffers
+end
+
+function M:is_buf_in_tabpage(tabpage, bufnr)
+  if vim.b[bufnr].tabpage then
+    return vim.b[bufnr].tabpage == tabpage
+  else
+    return vim.tbl_contains(M:bufs_in_tab(tabpage), bufnr)
+  end
+end
+
+--- @param tabpage integer
+function M:bufs_in_tab(tabpage)
+  local active_buffers = {}
+  local active_windows = vim.api.nvim_tabpage_list_wins(tabpage)
+  for _, active_window in ipairs(active_windows) do
+    table.insert(active_buffers, vim.api.nvim_win_get_buf(active_window))
+  end
+  return active_buffers
 end
 
 function M:update_status()
   local data = {}
   local buffers = self:buffers()
+  if #buffers <= 0 then
+    return
+  end
   local current = -2
   -- mark the first, last, current, before current, after current buffers
   -- for rendering
